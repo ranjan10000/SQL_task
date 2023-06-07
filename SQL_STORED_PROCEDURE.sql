@@ -117,4 +117,44 @@ JOIN OPENJSON(@JSON) WITH (id varchar(200) ,disposition_name varchar(200),dispos
  end 
 GO
 
+------------------------------------------------------------------------------------------------------------
+CREATE TABLE DEMO(DEMOID VARCHAR(50),FNAME VARCHAR(50),LNAME VARCHAR(50))
+
+INSERT INTO DEMO(DEMOID,FNAME,LNAME)VALUES('1','VIRAT','KHOLI')
+
+SELECT * FROM DEMO
+
+ALTER PROCEDURE INSERTDEMO(@JSON NVARCHAR(MAX))
+AS
+BEGIN
+
+DECLARE @ID VARCHAR(100)
+DECLARE @RESPONSE VARCHAR(100)
+
+--  RESPONSE DATA --
+SET @ID = (SELECT * FROM OPENJSON(@JSON)                
+ WITH (DEMOID VARCHAR(50)));                
+      --**--          
+INSERT INTO DEMO              
+ SELECT *  FROM OPENJSON(@JSON)                
+ WITH (  
+    DEMOID varchar(200),                
+    FNAME varchar(200),                
+    LNAME varchar(200)      
+)   
+SET @RESPONSE = N'{
+"ID":"'+@ID+'",
+"STATUS":"SUCCESS"
+"DISCRIPTION":"INSERT PROCEDURE"
+}'
+SELECT @RESPONSE AS responseJson
+END
+GO
+
+
+EXEC INSERTDEMO @JSON ='{"DEMOID":"2","FNAME":"MS","LNAME":"DHONI"}'
+
+
+
+
 
