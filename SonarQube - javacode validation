@@ -1,0 +1,18 @@
+SonarQube - download and unzip
+step 1:
+start  C:\sonarqube\bin\windows-x86-64\StartSonar.bat 
+step 2:
+Login to http://localhost:9000 with the following credentials for system admin: (admin/admin)
+
+SonarQube -- In SpringBoot
+step 1:
+<dependency>
+			<groupId>org.jacoco</groupId>
+			<artifactId>jacoco-maven-plugin</artifactId>
+			<version>0.8.6</version>
+</dependency>
+step 2: Go To Maven Build Comment then paste it
+clean org.jacoco:jacoco-maven-plugin:prepare-agent install
+
+step 3: create token in sonarqube then Go To Maven Build Comment then paste it
+sonar:sonar -Dsonar.login= tokenkey
