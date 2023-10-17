@@ -1,0 +1,304 @@
+---------------------ReportFilter---------------------------------------------------
+
+USE [INCIDENTTRACK_DB]
+GO
+/****** Object:  StoredProcedure [dbo].[SP_Report_Filter_Pro]    Script Date: 17-10-2023 18:20:51 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[SP_Report_Filter_Pro]
+    @JSON NVARCHAR(MAX)
+AS
+BEGIN
+    
+    DECLARE @output NVARCHAR(MAX);
+
+    DECLARE @EmployeeID NVARCHAR(255);
+    DECLARE @EmployeeName NVARCHAR(255);
+    DECLARE @Department NVARCHAR(MAX);
+    DECLARE @ReportingManager NVARCHAR(MAX);
+    DECLARE @Grade NVARCHAR(MAX);
+    DECLARE @Designation NVARCHAR(MAX);
+    DECLARE @IncidentType NVARCHAR(MAX);
+    DECLARE @IncidentsCSV NVARCHAR(MAX); -- Changed parameter name to @IncidentsCSV
+    DECLARE @StartDate DATE;
+    DECLARE @EndDate DATE;
+
+    SELECT @EmployeeID = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.EmployeeID'), ''), ''),
+           @EmployeeName = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.EmployeeName'), ''), ''),
+           @Department = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.Department'), '[]'), '[]'),
+           @ReportingManager = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.ReportingManager'), '[]'), '[]'),
+           @Grade = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.Grade'), '[]'), '[]'),
+           @Designation = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.Designation'), '[]'), '[]'),
+           @IncidentType = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.IncidentType'), ''), ''),
+           @IncidentsCSV = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.Incidents'), ''), ''), -- Use @IncidentsCSV to store the comma-separated string
+           @StartDate = TRY_CAST(NULLIF(ISNULL(JSON_VALUE(@JSON, '$.FromDate'), ''), '') AS DATE),
+           @EndDate = TRY_CAST(NULLIF(ISNULL(JSON_VALUE(@JSON, '$.ToDate'), ''), '') AS DATE);
+
+		  -- select @IncidentsCSV
+    -- Now, you can use these variables in your query to filter the data
+    SET @output = (
+        SELECT EMPLOYEE.*, INCIDENT.*
+        FROM EMPLOYEE
+        JOIN EMPLOYEE_INCIDENTS ON EMPLOYEE.VC_EMPLOYEE_EMPLOYEEID = EMPLOYEE_INCIDENTS.EMPLOYEE_ID
+        JOIN INCIDENT ON INCIDENT.ID = EMPLOYEE_INCIDENTS.INCIDENT_ID
+        WHERE (
+            (EMPLOYEE.VC_EMPLOYEE_EMPLOYEEID = @EmployeeID OR @EmployeeID IS NULL)
+            AND (@EmployeeName IS NULL OR (LOWER(EMPLOYEE.VC_EMPLOYEE_FIRSTNAME + ' ' + EMPLOYEE.VC_EMPLOYEE_LASTNAME) LIKE  LOWER(@EmployeeName) + '%' ))
+            AND (EMPLOYEE.VC_EMP_DEPARTMENT IN (SELECT value FROM OPENJSON(@Department)) OR @Department IS NULL)
+            AND (EMPLOYEE.VC_EMPLOYEE_REPORTING_TO IN (SELECT value FROM OPENJSON(@ReportingManager)) OR @ReportingManager IS NULL)
+            AND (EMPLOYEE.VC_EMPLOYEE_GRADE IN (SELECT value FROM OPENJSON(@Grade)) OR @Grade IS NULL)
+            AND (EMPLOYEE.VC_EMPLOYEE_DESIGNATION IN (SELECT value FROM OPENJSON(@Designation)) OR @Designation IS NULL)
+            AND (INCIDENT.INCIDENT_TYPE = @IncidentType OR @IncidentType IS NULL)
+            AND (
+			CHARINDEX(INCIDENT.INCIDENTS, @IncidentsCSV) > 0 OR 
+                @IncidentsCSV IS NULL -- Check for NULL instead of empty array
+                -- Use CHARINDEX to check if incidents are in the CSV string
+            )
+            AND (
+                (@StartDate IS NULL OR INCIDENT.CREATED_ON >= @StartDate)
+                AND (@EndDate IS NULL OR INCIDENT.CREATED_ON <= @EndDate)
+            )
+        )
+        FOR JSON AUTO
+    );
+	print @IncidentsCSV;
+    SELECT @output AS responseJSON;
+END;
+
+--------------------------------------------------------------------------------------------------
+
+
+--------------------------------Manager Profile Filter--------------------------------------------
+
+
+USE [INCIDENTTRACK_DB]
+GO
+/****** Object:  StoredProcedure [dbo].[Sp_ManagerProfile_Filter]    Script Date: 17-10-2023 18:22:02 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER  PROCEDURE [dbo].[Sp_ManagerProfile_Filter]
+    @JSON NVARCHAR(MAX)
+AS
+BEGIN
+    DECLARE @output NVARCHAR(MAX);
+    -- Parse JSON to extract criterias
+    DECLARE @EmployeeName NVARCHAR(255);
+    DECLARE @Department NVARCHAR(MAX);
+    DECLARE @ReportingManager NVARCHAR(MAX);
+	DECLARE @ReportingManagerId NVARCHAR(MAX);
+    DECLARE @Grade NVARCHAR(MAX);
+    DECLARE @Designation NVARCHAR(MAX);
+	DECLARE @useremployeeid NVARCHAR(MAX);
+	DECLARE @Username NVARCHAR(MAX);
+	DECLARE @UserAccessLevel NVARCHAR(255);
+	DECLARE @UserDepartment NVARCHAR(255);
+
+
+    SELECT 
+        @EmployeeName = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.EmployeeName'), ''), ''),
+        @Department = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.Department'), '[]'), '[]'),
+        @ReportingManager = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.ReportingManager'), '[]'), '[]'),
+		@ReportingManagerId = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.ReportingManagerId'), '[]'), '[]'),
+        @Grade = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.EmployeeGrade'), '[]'), '[]'),
+        @Designation = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.Designation'), '[]'), '[]'),
+	--	@Username = JSON_VALUE(@JSON, '$.Username'),
+		@useremployeeid=NULLIF(ISNULL(JSON_VALUE(@JSON, '$.UserEmployeeid'), ''), '')
+		--@UserAccessLevel = JSON_VALUE(@zJSON, '$.UserAccessLevel')
+
+		set @UserAccessLevel =  (SELECT VC_EMPLOYEE_GRADE from EMPLOYEE  WHERE VC_EMPLOYEE_EMPLOYEEID =@useremployeeid)
+		set @UserDepartment =  (SELECT VC_EMP_DEPARTMENT from EMPLOYEE  WHERE VC_EMPLOYEE_EMPLOYEEID = @useremployeeid)
+    -- Now, you can use these variables in your query to filter the data
+
+
+
+	IF (@UserAccessLevel = 'T6')
+    BEGIN
+		SET @output = (
+			SELECT * FROM EMPLOYEE
+			WHERE (
+			     VC_EMPLOYEE_EMPLOYEEID != @useremployeeid 
+				AND((LOWER(VC_EMPLOYEE_FIRSTNAME + ' ' + VC_EMPLOYEE_LASTNAME) LIKE  LOWER(@EmployeeName) + '%') OR @EmployeeName IS NULL)
+				AND (VC_EMP_DEPARTMENT IN (SELECT value FROM OPENJSON(@Department)) OR @Department IS NULL)
+				AND (VC_EMPLOYEE_REPORTING_TO_MAILID IN (SELECT VC_EMPLOYEE_EMAILID from EMPLOYEE where VC_EMPLOYEE_EMPLOYEEID IN (SELECT value FROM OPENJSON(@ReportingManagerId))) OR @ReportingManagerId IS NULL)
+				AND (VC_EMPLOYEE_GRADE IN (SELECT value FROM OPENJSON(@Grade)) OR @Grade IS NULL)
+				AND (VC_EMPLOYEE_DESIGNATION IN (SELECT value FROM OPENJSON(@Designation)) OR @Designation IS NULL)
+			) -- Modified Date Filtering
+			FOR JSON AUTO
+		);
+	END
+
+	ELSE IF (@UserDepartment = 'Human Resources')
+    BEGIN
+		SET @output =(
+		SELECT * FROM EMPLOYEE
+			WHERE (
+			     VC_EMPLOYEE_EMPLOYEEID != @useremployeeid 
+				AND((LOWER(VC_EMPLOYEE_FIRSTNAME + ' ' + VC_EMPLOYEE_LASTNAME) LIKE  LOWER(@EmployeeName) + '%') OR @EmployeeName IS NULL)
+				AND (VC_EMP_DEPARTMENT IN (SELECT value FROM OPENJSON(@Department)) OR @Department IS NULL)
+				AND (VC_EMPLOYEE_REPORTING_TO_MAILID IN (SELECT VC_EMPLOYEE_EMAILID from EMPLOYEE where VC_EMPLOYEE_EMPLOYEEID IN (SELECT value FROM OPENJSON(@ReportingManagerId))) OR @ReportingManagerId IS NULL)
+			    AND (( VC_EMPLOYEE_GRADE IN ( SELECT value FROM OPENJSON(@Grade)  WHERE value NOT IN ('T6','T5','M',''))AND @Grade IS NOT NULL ) OR (@Grade IS NULL AND VC_EMPLOYEE_GRADE NOT IN ('T6','T5','M','')))
+				AND (VC_EMPLOYEE_DESIGNATION IN (SELECT value FROM OPENJSON(@Designation)) OR @Designation IS NULL)
+			) -- Modified Date Filtering
+		FOR JSON AUTO
+		);
+	END
+
+	ELSE
+    BEGIN
+
+		SET @output = (
+			SELECT * FROM EMPLOYEE 
+			WHERE (
+			     VC_EMPLOYEE_EMPLOYEEID != @useremployeeid 
+				AND((LOWER(VC_EMPLOYEE_FIRSTNAME + ' ' + VC_EMPLOYEE_LASTNAME) LIKE  LOWER(@EmployeeName) + '%') OR @EmployeeName IS NULL)
+				AND (VC_EMP_DEPARTMENT IN (SELECT value FROM OPENJSON(@Department)) OR @Department IS NULL)
+				AND (VC_EMPLOYEE_REPORTING_TO_MAILID IN(SELECT VC_EMPLOYEE_EMAILID FROM EMPLOYEE WHERE VC_EMPLOYEE_EMPLOYEEID = @useremployeeid  ))
+				AND (VC_EMPLOYEE_GRADE IN (SELECT value FROM OPENJSON(@Grade)) OR @Grade IS NULL) 
+				AND (VC_EMPLOYEE_DESIGNATION IN (SELECT value FROM OPENJSON(@Designation)) OR @Designation IS NULL)
+			) -- Modified Date Filtering
+		FOR JSON AUTO
+		);
+	END
+
+  SELECT @output AS responseJSON;
+END;
+--------------------------------------------------------------------------------------------------------------
+
+
+
+-----------------------------------------------------------RoleFilter-------------------------------------------
+
+
+USE [INCIDENTTRACK_DB]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_new_rolefilter]    Script Date: 17-10-2023 18:22:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER  PROCEDURE [dbo].[sp_new_rolefilter]
+    @JSON NVARCHAR(MAX)
+AS
+BEGIN
+    -- Parse JSON to extract criteria
+    DECLARE @output NVARCHAR(MAX);
+    DECLARE @RoleName NVARCHAR(255);
+    DECLARE @FeatureName NVARCHAR(255);
+    DECLARE @Status NVARCHAR(255);
+
+    -- Parse JSON input
+    SELECT @RoleName = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.RoleName'), ''), ''),
+           @FeatureName = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.FeatureName'), ''), ''),
+           @Status = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.Status'), ''), '');
+
+    -- Split the @FeatureName into individual feature names
+    DECLARE @FeatureNameTable TABLE (FeatureName NVARCHAR(255));
+    INSERT INTO @FeatureNameTable (FeatureName)
+    SELECT value
+    FROM STRING_SPLIT(@FeatureName, ',');
+
+    -- Create a temporary table to store the filtered results
+    CREATE TABLE #TEMP (
+        ID INT,
+        CREATEDBY VARCHAR(255),
+        CREATEDON VARCHAR(255),
+        ROLENAME VARCHAR(255),
+        STATUS VARCHAR(255),
+        UPDATEDBY VARCHAR(255),
+        UPDATEDON VARCHAR(255),
+        ROLEFEATURES VARCHAR(255),
+        FEATURES VARCHAR(255)
+    );
+
+    -- Insert filtered data into #TEMP based on the provided filters
+    SET @output = (
+        SELECT DISTINCT
+            R.ID,
+            R.CREATED_BY, 
+            R.CREATED_ON, 
+            R.ROLE_NAME,
+            R.STATUS,
+            R.UPDATED_BY,
+            R.UPDATED_ON,
+            RF.ROLE_ID AS ROLEFEATURES,
+            STUFF((SELECT ', ' + F.FEATURE_NAME
+                   FROM dbo.ROLE_FEATURES RF1
+                   INNER JOIN dbo.FEATURES F ON RF1.FEATURE_ID = F.ID
+                   WHERE RF1.ROLE_ID = R.ID
+                   FOR XML PATH('')), 1, 2, '') AS FEATURES
+        FROM dbo.ROLES R
+        INNER JOIN dbo.ROLE_FEATURES RF ON R.ID = RF.ROLE_ID
+        WHERE 
+            (@FeatureName IS NULL OR EXISTS (
+                SELECT 1
+                FROM dbo.FEATURES F
+                INNER JOIN dbo.ROLE_FEATURES RF1 ON F.ID = RF1.FEATURE_ID
+                WHERE RF1.ROLE_ID = R.ID
+                  AND F.FEATURE_NAME IN (SELECT FeatureName FROM @FeatureNameTable)
+            ))
+            AND
+            (@RoleName IS NULL OR R.ROLE_NAME = @RoleName)
+            AND
+            (@Status IS NULL OR R.STATUS = @Status)
+        FOR JSON AUTO
+    );
+
+    SELECT @output AS responseJSON;
+
+    DROP TABLE #TEMP;
+END;
+----------------------------------------------------------------------------------------------------------------------
+
+
+---------------------------------Old-ReportFilter--------------------------------------------------------------------
+
+
+USE [INCIDENTTRACK_DB]
+GO
+/****** Object:  StoredProcedure [dbo].[SP_Roles_Features]    Script Date: 17-10-2023 18:23:37 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[SP_Roles_Features]
+    @JSON NVARCHAR(MAX)
+AS
+BEGIN
+    -- Parse JSON to extract criteria
+    DECLARE @output NVARCHAR(MAX);
+
+    DECLARE @RoleName NVARCHAR(255);
+    DECLARE @FeatureNames NVARCHAR(MAX); -- Use MAX to handle multiple selections
+    DECLARE @Status NVARCHAR(255);
+
+    SELECT @RoleName = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.RoleName'), ''), ''),
+           @FeatureNames = NULLIF(ISNULL(JSON_QUERY(@JSON, '$.FeatureName'), '[]'), '[]'),
+           @Status = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.Status'), ''), '');
+
+    -- Now, you can use these variables in your query to filter the data
+    SET @output = (
+        SELECT R.*, F.*
+        FROM ROLES R -- Replace 'YourTable' with your actual table name
+        LEFT JOIN ROLE_FEATURES RF ON R.ID = RF.ROLE_ID
+        LEFT JOIN FEATURES F ON F.ID = RF.FEATURE_ID
+        WHERE  (R.ROLE_NAME = @RoleName OR @RoleName IS NULL)
+            AND (R.STATUS = @Status OR @Status IS NULL)
+            AND (
+                @FeatureNames IS NULL 
+                OR EXISTS (
+                    SELECT 1
+                    FROM OPENJSON(@FeatureNames)
+                    WITH (FeatureName NVARCHAR(255) '$') AS Features
+                    WHERE F.FEATURE_NAME = Features.FeatureName
+                )
+            )
+        FOR JSON AUTO
+    );
+
+    SELECT @output AS responseJSON;
+END;
