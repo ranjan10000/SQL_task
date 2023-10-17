@@ -154,6 +154,104 @@ GO
 
 EXEC INSERTDEMO @JSON ='{"DEMOID":"2","FNAME":"MS","LNAME":"DHONI"}'
 
+------------------------------------------------------------------------------------------
+
+USE [INCIDENTTRACK_DB]
+GO
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[sp_new_rolefilter]
+    @JSON NVARCHAR(MAX)
+AS
+BEGIN
+    -- Parse JSON to extract criteria
+    DECLARE @RoleName NVARCHAR(255);
+    DECLARE @FeatureNames NVARCHAR(MAX);
+    DECLARE @Status NVARCHAR(255);
+
+    -- Parse JSON input
+    SELECT @RoleName = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.RoleName'), ''), ''),
+           @FeatureNames = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.FeatureName'), ''), ''),
+           @Status = NULLIF(ISNULL(JSON_VALUE(@JSON, '$.Status'), ''), '');
+
+    -- Create a temporary table to store the filtered results
+    CREATE TABLE #TEMP (
+        ID INT,
+        CREATEDBY VARCHAR(255),
+        CREATEDON VARCHAR(255),
+        ROLENAME VARCHAR(255),
+        STATUS VARCHAR(255),
+        UPDATEDBY VARCHAR(255),
+        UPDATEDON VARCHAR(255),
+        ROLEFEATURES VARCHAR(255),
+        FEATURES VARCHAR(255)
+    );
+
+    -- Split feature names into individual rows
+    ;WITH FeatureNameSplit AS (
+        SELECT 
+            value AS FeatureName
+        FROM 
+            STRING_SPLIT(@FeatureNames, ',')
+    )
+
+    -- Insert filtered data into #TEMP based on the provided filters
+    INSERT INTO #TEMP (
+        ID, CREATEDBY, CREATEDON, ROLENAME, STATUS, UPDATEDBY, UPDATEDON, ROLEFEATURES, FEATURES
+    )
+    SELECT DISTINCT
+        R.ID,
+        R.CREATED_BY, 
+        R.CREATED_ON, 
+        R.ROLE_NAME,
+        R.STATUS,
+        R.UPDATED_BY,
+        R.UPDATED_ON,
+        RF.ROLE_ID AS ROLEFEATURES,
+        STUFF((SELECT ', ' + F.FEATURE_NAME
+               FROM dbo.ROLE_FEATURES RF1
+               INNER JOIN dbo.FEATURES F ON RF1.FEATURE_ID = F.ID
+               WHERE RF1.ROLE_ID = R.ID
+               FOR XML PATH('')), 1, 2, '') AS FEATURES
+    FROM dbo.ROLES R
+    INNER JOIN dbo.ROLE_FEATURES RF ON R.ID = RF.ROLE_ID
+    WHERE 
+        (@FeatureNames IS NULL OR EXISTS (
+            SELECT 1
+            FROM FeatureNameSplit FNS
+            WHERE CHARINDEX(FNS.FeatureName, R.ROLE_NAME) > 0
+        ))
+        AND
+        (@RoleName IS NULL OR R.ROLE_NAME = @RoleName)
+        AND
+        (@Status IS NULL OR R.STATUS = @Status);
+
+    -- Select the results from the #TEMP table as JSON
+    SELECT * FROM #TEMP FOR JSON AUTO;
+
+    -- Drop the #TEMP table after use
+    DROP TABLE #TEMP;
+END;
+
+
+
+DECLARE @JSON NVARCHAR(MAX);
+-- Set your JSON input here
+SET @JSON = N'{
+    "RoleName": "",
+    "FeatureName": "Manager Profile ,Role Management",
+    "Status": "Active"
+}';
+
+-- Execute the stored procedure
+EXEC [dbo].[sp_new_rolefilter] @JSON;
+
+
+Select * from ROLES
+select * from FEATURES
+Select * from [dbo].[ROLE_FEATURES]
 
 
 
